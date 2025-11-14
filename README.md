@@ -48,6 +48,7 @@ Or simply double-click **JSON Pro.app** to launch.
 - **Cmd-F** - Format (pretty print)
 - **Cmd-M** - Minify JSON
 - **Cmd-K** - Validate JSON
+- **Cmd-R** - Refresh tree view
 
 ## Usage
 

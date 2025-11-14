@@ -14,9 +14,10 @@ from datetime import datetime
 class JSONTreeView:
     """Tree view panel for JSON structure navigation"""
 
-    def __init__(self, parent):
+    def __init__(self, parent, on_refresh=None):
         self.parent = parent
         self.container = tk.Frame(parent, bg='#2b2b2b')
+        self.on_refresh = on_refresh
 
         # Header
         header = tk.Frame(self.container, bg='#2b2b2b')
@@ -24,6 +25,21 @@ class JSONTreeView:
 
         tk.Label(header, text="JSON Structure", bg='#2b2b2b', fg='white',
                 font=('Arial', 10, 'bold')).pack(side='left')
+
+        # Refresh button
+        refresh_btn = tk.Label(header, text="⟳", bg='#404040', fg='white',
+                              padx=8, pady=2, cursor='hand2', relief='raised', bd=1,
+                              font=('Arial', 14))
+        refresh_btn.pack(side='right')
+        refresh_btn.bind("<Button-1>", lambda e: self.on_refresh() if self.on_refresh else None)
+
+        # Hover effects for refresh button
+        def on_refresh_enter(e):
+            refresh_btn.config(bg='#505050')
+        def on_refresh_leave(e):
+            refresh_btn.config(bg='#404040')
+        refresh_btn.bind("<Enter>", on_refresh_enter)
+        refresh_btn.bind("<Leave>", on_refresh_leave)
 
         # Tree view
         tree_frame = tk.Frame(self.container, bg='#404040', bd=1)
@@ -286,6 +302,7 @@ class JSONEditorPro:
         self.root.bind("<Command-f>", lambda e: self.format_json())
         self.root.bind("<Command-m>", lambda e: self.minify_json())
         self.root.bind("<Command-k>", lambda e: self.validate_json())
+        self.root.bind("<Command-r>", lambda e: self.refresh_tree())
 
     def maximize_window(self):
         """Maximize window to fill screen"""
@@ -344,7 +361,7 @@ class JSONEditorPro:
         self.main_paned.pack(fill='both', expand=True, padx=5, pady=5)
 
         # Left panel - Tree view
-        self.tree_view = JSONTreeView(self.root)
+        self.tree_view = JSONTreeView(self.root, on_refresh=self.refresh_tree)
 
         # Right panel - Tabs
         right_panel = tk.Frame(self.root, bg='#2b2b2b')
@@ -650,6 +667,25 @@ class JSONEditorPro:
         except json.JSONDecodeError as e:
             error_msg = str(e)
             messagebox.showerror("Invalid JSON", f"JSON validation failed:\n\n{error_msg}")
+            self.status_label.config(text="✗ Invalid JSON", fg='#ff5555')
+
+    def refresh_tree(self):
+        """Refresh the JSON tree view from current tab content"""
+        current_tab = self.get_current_tab()
+        if not current_tab:
+            return
+
+        try:
+            content = current_tab.get_content()
+            if content:
+                data = json.loads(content)
+                self.tree_view.populate(data)
+                self.status_label.config(text="Tree refreshed", fg='#50fa7b')
+                self.root.after(2000, lambda: self.status_label.config(text=""))
+            else:
+                self.tree_view.populate(None)
+        except json.JSONDecodeError as e:
+            messagebox.showerror("Invalid JSON", f"Cannot refresh tree with invalid JSON:\n{str(e)}")
             self.status_label.config(text="✗ Invalid JSON", fg='#ff5555')
 
     def run(self):
