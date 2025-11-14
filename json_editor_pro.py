@@ -10,6 +10,28 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import json
 from datetime import datetime
+import re
+
+# Settings file for persistent last folder
+SETTINGS_FILE = os.path.expanduser("~/.json_editor_pro.json")
+
+def load_settings():
+    """Load settings from file"""
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_settings(settings):
+    """Save settings to file"""
+    try:
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(settings, f)
+    except:
+        pass
 
 class JSONTreeView:
     """Tree view panel for JSON structure navigation"""
@@ -89,23 +111,12 @@ class JSONTreeView:
         """Handle click on tree item"""
         item = self.tree.identify('item', event.x, event.y)
         if item:
-            # Get the key name from the item
-            item_text = self.tree.item(item, 'text')
-            key_name = None
-
-            # Extract key name
-            if item_text.startswith('📁 '):
-                # It's a folder (object/array key)
-                key_name = item_text[2:].strip()  # Remove folder icon
-            elif '  :  ' in item_text and not item_text.startswith('['):
-                # It's a key-value pair (format: "key  :  value")
-                key_name = item_text.split('  :  ')[0].strip()
-            elif ':' in item_text and not item_text.startswith('['):
-                # Fallback for old format
-                key_name = item_text.split(':')[0].strip()
-
-            if key_name and self.on_key_click:
-                self.on_key_click(key_name)
+            # Get the stored path from the item's values
+            values = self.tree.item(item, 'values')
+            if values and len(values) > 0:
+                json_path = values[0]
+                if json_path and self.on_key_click:
+                    self.on_key_click(json_path)
 
     def populate(self, json_data):
         """Populate tree view with JSON data"""
@@ -116,17 +127,20 @@ class JSONTreeView:
             return
 
         # Add root
-        root = self.tree.insert("", "end", text="JSON Document", open=True)
-        self._add_node(root, json_data, level=0)
+        root = self.tree.insert("", "end", text="JSON Document", open=True, values=("",))
+        self._add_node(root, json_data, level=0, path="")
 
-    def _add_node(self, parent, data, level=0):
+    def _add_node(self, parent, data, level=0, path=""):
         """Recursively add JSON nodes to tree"""
         if isinstance(data, dict):
             for key, value in data.items():
+                # Build the path for this key
+                new_path = f"{path}.{key}" if path else key
+
                 if isinstance(value, (dict, list)):
                     # Folder keys - keep bold
-                    node = self.tree.insert(parent, "end", text=f"📁 {key}", open=False, tags=('key',))
-                    self._add_node(node, value, level=level+1)
+                    node = self.tree.insert(parent, "end", text=f"📁 {key}", open=False, tags=('key',), values=(new_path,))
+                    self._add_node(node, value, level=level+1, path=new_path)
                 else:
                     # Key:value pairs - format as "key : value"
                     value_str = str(value)
@@ -143,12 +157,15 @@ class JSONTreeView:
 
                     # Format: "key" in default + " : " + value
                     # Since we can't mix fonts, we'll use spacing to visually separate
-                    self.tree.insert(parent, "end", text=f"{key}  :  {value_str}", tags=(tag,))
+                    self.tree.insert(parent, "end", text=f"{key}  :  {value_str}", tags=(tag,), values=(new_path,))
         elif isinstance(data, list):
             for i, item in enumerate(data):
+                # Build the path for this array index
+                new_path = f"{path}[{i}]"
+
                 if isinstance(item, (dict, list)):
-                    node = self.tree.insert(parent, "end", text=f"📁 [{i}]", open=False, tags=('key',))
-                    self._add_node(node, item, level=level+1)
+                    node = self.tree.insert(parent, "end", text=f"📁 [{i}]", open=False, tags=('key',), values=(new_path,))
+                    self._add_node(node, item, level=level+1, path=new_path)
                 else:
                     value_str = str(item)
                     if len(value_str) > 50:
@@ -160,7 +177,7 @@ class JSONTreeView:
                     else:
                         tag = 'value_green'
 
-                    self.tree.insert(parent, "end", text=f"[{i}]  :  {value_str}", tags=(tag,))
+                    self.tree.insert(parent, "end", text=f"[{i}]  :  {value_str}", tags=(tag,), values=(new_path,))
 
 
 class JSONTab:
@@ -264,7 +281,6 @@ class JSONTab:
             start_idx = f"{end_pos}+1c"
 
         # Highlight numbers
-        import re
         for match in re.finditer(r'\b\d+\.?\d*\b', content):
             start = f"1.0+{match.start()}c"
             end = f"1.0+{match.end()}c"
@@ -330,36 +346,197 @@ class JSONTab:
         else:
             self.file_label.config(text="Untitled", fg='#808080')
 
-    def find_and_highlight_key(self, key_name):
-        """Find a key in the JSON text, scroll to it, and highlight it"""
+    def find_and_highlight_key(self, json_path):
+        """Find a key in the JSON text using its path, scroll to it, and highlight it"""
         # Remove any existing highlights
         self.text.tag_remove('highlight', '1.0', tk.END)
 
         # Configure highlight tag
         self.text.tag_config('highlight', background='#ffd700', foreground='#000000')
 
-        # Search for the key in the format "key":
-        search_pattern = f'"{key_name}"'
+        if not json_path:
+            return
 
-        # Start from the beginning
-        start_pos = self.text.search(search_pattern, '1.0', tk.END)
+        try:
+            # Parse the JSON to get the structure
+            content = self.get_content()
+            if not content:
+                return
 
-        if start_pos:
-            # Calculate end position
-            end_pos = f"{start_pos}+{len(search_pattern)}c"
+            data = json.loads(content)
 
-            # Highlight the key
-            self.text.tag_add('highlight', start_pos, end_pos)
+            # Navigate to the value using the path
+            path_parts = self._parse_path(json_path)
+            if not path_parts:
+                return
 
-            # Scroll to make it visible at the top
-            self.text.see(start_pos)
-            self.text.mark_set(tk.INSERT, start_pos)
+            # Find the key position by parsing the text and tracking paths
+            position = self._find_key_position_by_path(content, json_path)
 
-            # Update position indicator
-            self.update_position()
+            if position:
+                start_pos, end_pos = position
 
-            # Remove highlight after 3 seconds
-            self.text.after(3000, lambda: self.text.tag_remove('highlight', '1.0', tk.END))
+                # Highlight the key
+                self.text.tag_add('highlight', start_pos, end_pos)
+
+                # Scroll to make it visible
+                self.text.see(start_pos)
+                self.text.mark_set(tk.INSERT, start_pos)
+
+                # Update position indicator
+                self.update_position()
+
+                # Remove highlight after 3 seconds
+                self.text.after(3000, lambda: self.text.tag_remove('highlight', '1.0', tk.END))
+
+        except Exception as e:
+            # If path-based search fails, fall back to simple search
+            print(f"Path-based search failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _parse_path(self, path):
+        """Parse a JSON path like 'user.address.city' or 'items[0].name' into parts"""
+        if not path:
+            return []
+
+        parts = []
+        current = ""
+        i = 0
+        while i < len(path):
+            if path[i] == '.':
+                if current:
+                    parts.append(current)
+                    current = ""
+                i += 1
+            elif path[i] == '[':
+                if current:
+                    parts.append(current)
+                    current = ""
+                # Find the closing bracket
+                j = i + 1
+                while j < len(path) and path[j] != ']':
+                    j += 1
+                # Extract the index
+                index = int(path[i+1:j])
+                parts.append(index)
+                i = j + 1
+            else:
+                current += path[i]
+                i += 1
+
+        if current:
+            parts.append(current)
+
+        return parts
+
+    def _find_key_position_by_path(self, content, target_path):
+        """Find the text position of a key by parsing JSON and tracking paths"""
+        # Parse the path
+        path_parts = self._parse_path(target_path)
+        if not path_parts:
+            return None
+
+        target_key = path_parts[-1]
+
+        # If it's an array index, handle differently
+        if isinstance(target_key, int):
+            return None  # For now, skip array indices
+
+        # Track all key positions and their paths
+        key_positions = []
+
+        # Parse JSON manually to track positions
+        lines = content.split('\n')
+
+        for line_idx, line in enumerate(lines):
+            line_num = line_idx + 1
+
+            # Look for key patterns: "key":
+            # Use regex to find all quoted strings followed by colon
+            for match in re.finditer(r'"([^"]+)"\s*:', line):
+                key_name = match.group(1)
+                key_start_in_line = match.start()
+
+                # If the key matches our target
+                if key_name == target_key:
+                    # Store this position with the key
+                    key_positions.append({
+                        'key': key_name,
+                        'line': line_num,
+                        'col': key_start_in_line
+                    })
+
+        # Now we need to figure out which occurrence matches our path
+        # We'll do this by parsing the JSON structure
+        occurrence_index = self._find_path_occurrence(content, target_path)
+
+        if occurrence_index is not None and occurrence_index < len(key_positions):
+            pos_info = key_positions[occurrence_index]
+
+            # Convert to Tkinter text widget position
+            start_pos = f"{pos_info['line']}.{pos_info['col']}"
+            # Calculate end position (key with quotes)
+            end_pos = f"{pos_info['line']}.{pos_info['col'] + len(target_key) + 2}"  # +2 for quotes
+
+            return (start_pos, end_pos)
+
+        return None
+
+    def _find_path_occurrence(self, content, target_path):
+        """Find which occurrence of a key name corresponds to the target path"""
+        try:
+            data = json.loads(content)
+            path_parts = self._parse_path(target_path)
+
+            if not path_parts:
+                return 0
+
+            target_key = path_parts[-1]
+            if isinstance(target_key, int):
+                return 0
+
+            # Count how many times we see this key name before reaching our target
+            count = [0]  # Use list to make it mutable in nested function
+            found_index = [None]
+
+            def traverse(obj, current_path):
+                if found_index[0] is not None:
+                    return
+
+                if isinstance(obj, dict):
+                    for key, value in obj.items():
+                        # Build current path
+                        new_path = current_path + [key]
+
+                        # If this key matches our target key name
+                        if key == target_key:
+                            # Check if this is our target path
+                            if new_path == path_parts:
+                                found_index[0] = count[0]
+                                return
+                            else:
+                                # This is a different occurrence
+                                count[0] += 1
+
+                        # Recurse into nested structures
+                        if isinstance(value, (dict, list)):
+                            traverse(value, new_path)
+
+                elif isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        new_path = current_path + [i]
+                        if isinstance(item, (dict, list)):
+                            traverse(item, new_path)
+
+            traverse(data, [])
+            return found_index[0] if found_index[0] is not None else 0
+
+        except Exception as e:
+            print(f"Error in _find_path_occurrence: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0
 
 
 class JSONEditorPro:
@@ -379,6 +556,10 @@ class JSONEditorPro:
         self.tabs = {}
         self.tab_counter = 0
         self.tree_panel_visible = True
+
+        # Load settings
+        self.settings = load_settings()
+        self.last_folder = self.settings.get('last_folder', os.path.expanduser("~"))
 
         # Create UI
         self.create_widgets()
@@ -605,6 +786,7 @@ class JSONEditorPro:
         """Open a JSON file"""
         filename = filedialog.askopenfilename(
             title="Open JSON File",
+            initialdir=self.last_folder,
             filetypes=[
                 ("JSON files", "*.json"),
                 ("All files", "*.*")
@@ -612,6 +794,11 @@ class JSONEditorPro:
         )
 
         if filename:
+            # Save the folder for next time
+            self.last_folder = os.path.dirname(filename)
+            self.settings['last_folder'] = self.last_folder
+            save_settings(self.settings)
+
             try:
                 with open(filename, 'r') as f:
                     content = f.read()
@@ -670,6 +857,11 @@ class JSONEditorPro:
             with open(current_tab.file_path, 'w') as f:
                 f.write(content)
 
+            # Save the folder for next time
+            self.last_folder = os.path.dirname(current_tab.file_path)
+            self.settings['last_folder'] = self.last_folder
+            save_settings(self.settings)
+
             current_tab.modified = False
 
             # Update tab name (remove *)
@@ -694,6 +886,7 @@ class JSONEditorPro:
 
         filename = filedialog.asksaveasfilename(
             defaultextension=".json",
+            initialdir=self.last_folder,
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
         )
 
@@ -778,11 +971,11 @@ class JSONEditorPro:
             messagebox.showerror("Invalid JSON", f"Cannot refresh tree with invalid JSON:\n{str(e)}")
             self.status_label.config(text="✗ Invalid JSON", fg='#ff5555')
 
-    def on_key_clicked(self, key_name):
+    def on_key_clicked(self, json_path):
         """Handle click on a key in the tree view"""
         current_tab = self.get_current_tab()
         if current_tab:
-            current_tab.find_and_highlight_key(key_name)
+            current_tab.find_and_highlight_key(json_path)
 
     def run(self):
         """Start the application"""
