@@ -69,9 +69,11 @@ class JSONTreeView:
                        borderwidth=0,
                        font=('Menlo', 12))
 
-        # Configure tags for bold keys
-        self.tree.tag_configure('key', font=('Menlo', 12, 'bold'))
-        self.tree.tag_configure('key_value', font=('Menlo', 12, 'bold'))
+        # Configure tags for keys and values
+        self.tree.tag_configure('key', font=('Menlo', 12, 'bold'))  # Bold for folder keys
+        self.tree.tag_configure('key_bold', font=('Menlo', 12, 'bold'))  # Bold for key part
+        self.tree.tag_configure('value_blue', font=('Menlo', 12), foreground='#569cd6')  # Blue for top-level values
+        self.tree.tag_configure('value_green', font=('Menlo', 12), foreground='#4ec9b0')  # Dark green for nested values
 
         # Bind click event for navigation
         self.tree.bind('<Button-1>', self.on_tree_click)
@@ -95,8 +97,11 @@ class JSONTreeView:
             if item_text.startswith('📁 '):
                 # It's a folder (object/array key)
                 key_name = item_text[2:].strip()  # Remove folder icon
+            elif '  :  ' in item_text and not item_text.startswith('['):
+                # It's a key-value pair (format: "key  :  value")
+                key_name = item_text.split('  :  ')[0].strip()
             elif ':' in item_text and not item_text.startswith('['):
-                # It's a key-value pair
+                # Fallback for old format
                 key_name = item_text.split(':')[0].strip()
 
             if key_name and self.on_key_click:
@@ -112,30 +117,50 @@ class JSONTreeView:
 
         # Add root
         root = self.tree.insert("", "end", text="JSON Document", open=True)
-        self._add_node(root, json_data)
+        self._add_node(root, json_data, level=0)
 
-    def _add_node(self, parent, data):
+    def _add_node(self, parent, data, level=0):
         """Recursively add JSON nodes to tree"""
         if isinstance(data, dict):
             for key, value in data.items():
                 if isinstance(value, (dict, list)):
+                    # Folder keys - keep bold
                     node = self.tree.insert(parent, "end", text=f"📁 {key}", open=False, tags=('key',))
-                    self._add_node(node, value)
+                    self._add_node(node, value, level=level+1)
                 else:
+                    # Key:value pairs - format as "key : value"
                     value_str = str(value)
                     if len(value_str) > 50:
                         value_str = value_str[:50] + "..."
-                    self.tree.insert(parent, "end", text=f"{key}: {value_str}", tags=('key_value',))
+
+                    # Use different colors based on nesting level
+                    if level == 0:
+                        # Top level values in blue
+                        tag = 'value_blue'
+                    else:
+                        # Nested values in dark green
+                        tag = 'value_green'
+
+                    # Format: "key" in default + " : " + value
+                    # Since we can't mix fonts, we'll use spacing to visually separate
+                    self.tree.insert(parent, "end", text=f"{key}  :  {value_str}", tags=(tag,))
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 if isinstance(item, (dict, list)):
-                    node = self.tree.insert(parent, "end", text=f"📁 [{i}]", open=False)
-                    self._add_node(node, item)
+                    node = self.tree.insert(parent, "end", text=f"📁 [{i}]", open=False, tags=('key',))
+                    self._add_node(node, item, level=level+1)
                 else:
                     value_str = str(item)
                     if len(value_str) > 50:
                         value_str = value_str[:50] + "..."
-                    self.tree.insert(parent, "end", text=f"[{i}]: {value_str}")
+
+                    # Array items use same color scheme as regular values
+                    if level == 0:
+                        tag = 'value_blue'
+                    else:
+                        tag = 'value_green'
+
+                    self.tree.insert(parent, "end", text=f"[{i}]  :  {value_str}", tags=(tag,))
 
 
 class JSONTab:
