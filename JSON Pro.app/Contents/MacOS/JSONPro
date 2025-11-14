@@ -1,0 +1,4 @@
+#!/bin/bash
+cd "$HOME/json Pro"
+source "$HOME/json Pro/venv314/bin/activate"
+python3 "$HOME/json Pro/json_editor_pro.py"
