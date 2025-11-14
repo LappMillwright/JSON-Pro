@@ -67,11 +67,11 @@ class JSONTreeView:
                        foreground="#d4d4d4",
                        fieldbackground="#1e1e1e",
                        borderwidth=0,
-                       font=('Monaco', 11))
+                       font=('Menlo', 12))
 
         # Configure tags for bold keys
-        self.tree.tag_configure('key', font=('Monaco', 11, 'bold'))
-        self.tree.tag_configure('key_value', font=('Monaco', 11, 'bold'))
+        self.tree.tag_configure('key', font=('Menlo', 12, 'bold'))
+        self.tree.tag_configure('key_value', font=('Menlo', 12, 'bold'))
 
         # Bind click event for navigation
         self.tree.bind('<Button-1>', self.on_tree_click)
@@ -171,7 +171,7 @@ class JSONTab:
                            bg='#1e1e1e',
                            fg='#d4d4d4',
                            insertbackground='white',
-                           font=('Monaco', 12),
+                           font=('Menlo', 13),
                            wrap='none',
                            bd=0,
                            highlightthickness=0)
