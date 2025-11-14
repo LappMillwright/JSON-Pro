@@ -69,6 +69,39 @@ class JSONTreeView:
                        borderwidth=0,
                        font=('Monaco', 11))
 
+        # Configure tags for bold keys
+        self.tree.tag_configure('key', font=('Monaco', 11, 'bold'))
+        self.tree.tag_configure('key_value', font=('Monaco', 11, 'bold'))
+
+        # Bind click event for navigation
+        self.tree.bind('<Button-1>', self.on_tree_click)
+
+        # Store callback for navigation
+        self.on_key_click = None
+
+    def set_on_key_click(self, callback):
+        """Set callback for when a key is clicked"""
+        self.on_key_click = callback
+
+    def on_tree_click(self, event):
+        """Handle click on tree item"""
+        item = self.tree.identify('item', event.x, event.y)
+        if item:
+            # Get the key name from the item
+            item_text = self.tree.item(item, 'text')
+            key_name = None
+
+            # Extract key name
+            if item_text.startswith('📁 '):
+                # It's a folder (object/array key)
+                key_name = item_text[2:].strip()  # Remove folder icon
+            elif ':' in item_text and not item_text.startswith('['):
+                # It's a key-value pair
+                key_name = item_text.split(':')[0].strip()
+
+            if key_name and self.on_key_click:
+                self.on_key_click(key_name)
+
     def populate(self, json_data):
         """Populate tree view with JSON data"""
         # Clear existing tree
@@ -86,13 +119,13 @@ class JSONTreeView:
         if isinstance(data, dict):
             for key, value in data.items():
                 if isinstance(value, (dict, list)):
-                    node = self.tree.insert(parent, "end", text=f"📁 {key}", open=False)
+                    node = self.tree.insert(parent, "end", text=f"📁 {key}", open=False, tags=('key',))
                     self._add_node(node, value)
                 else:
                     value_str = str(value)
                     if len(value_str) > 50:
                         value_str = value_str[:50] + "..."
-                    self.tree.insert(parent, "end", text=f"{key}: {value_str}")
+                    self.tree.insert(parent, "end", text=f"{key}: {value_str}", tags=('key_value',))
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 if isinstance(item, (dict, list)):
@@ -272,6 +305,37 @@ class JSONTab:
         else:
             self.file_label.config(text="Untitled", fg='#808080')
 
+    def find_and_highlight_key(self, key_name):
+        """Find a key in the JSON text, scroll to it, and highlight it"""
+        # Remove any existing highlights
+        self.text.tag_remove('highlight', '1.0', tk.END)
+
+        # Configure highlight tag
+        self.text.tag_config('highlight', background='#ffd700', foreground='#000000')
+
+        # Search for the key in the format "key":
+        search_pattern = f'"{key_name}"'
+
+        # Start from the beginning
+        start_pos = self.text.search(search_pattern, '1.0', tk.END)
+
+        if start_pos:
+            # Calculate end position
+            end_pos = f"{start_pos}+{len(search_pattern)}c"
+
+            # Highlight the key
+            self.text.tag_add('highlight', start_pos, end_pos)
+
+            # Scroll to make it visible at the top
+            self.text.see(start_pos)
+            self.text.mark_set(tk.INSERT, start_pos)
+
+            # Update position indicator
+            self.update_position()
+
+            # Remove highlight after 3 seconds
+            self.text.after(3000, lambda: self.text.tag_remove('highlight', '1.0', tk.END))
+
 
 class JSONEditorPro:
     """Main JSON Editor Application"""
@@ -362,6 +426,7 @@ class JSONEditorPro:
 
         # Left panel - Tree view
         self.tree_view = JSONTreeView(self.root, on_refresh=self.refresh_tree)
+        self.tree_view.set_on_key_click(self.on_key_clicked)
 
         # Right panel - Tabs
         right_panel = tk.Frame(self.root, bg='#2b2b2b')
@@ -687,6 +752,12 @@ class JSONEditorPro:
         except json.JSONDecodeError as e:
             messagebox.showerror("Invalid JSON", f"Cannot refresh tree with invalid JSON:\n{str(e)}")
             self.status_label.config(text="✗ Invalid JSON", fg='#ff5555')
+
+    def on_key_clicked(self, key_name):
+        """Handle click on a key in the tree view"""
+        current_tab = self.get_current_tab()
+        if current_tab:
+            current_tab.find_and_highlight_key(key_name)
 
     def run(self):
         """Start the application"""
